@@ -71,7 +71,113 @@ typedef enum QOBJerror
 } QOBJerror;
 
 //----------------------------------------------------------------------//
-//FUNCTIONS:
+//HASH MAP FUNCTIONS:
+
+typedef struct QOBJvertexHashmap
+{
+	size_t size;
+	size_t cap;
+	QOBJuvec3* keys;
+	uint32_t* vals;
+} QOBJvertexHashmap;
+
+static QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
+{
+	map->size = 0;
+	map->cap = 32;
+	map->keys = malloc(map->cap * sizeof(QOBJuvec3));
+	if(!map->keys)
+		return QOBJ_ERROR_OUT_OF_MEM;
+	map->vals = malloc(map->cap * sizeof(uint32_t));
+	if(!map->vals)
+	{
+		free(map->keys);
+		return QOBJ_ERROR_OUT_OF_MEM;
+	}
+
+	memset(map->keys, UINT8_MAX, map->cap * sizeof(QOBJuvec3));
+
+	return QOBJ_SUCCESS;
+}
+
+static void qobj_hashmap_free(QOBJvertexHashmap map)
+{
+	free(map.keys);
+	free(map.vals);
+}
+
+static inline size_t qobj_hashmap_hash(QOBJuvec3 key)
+{
+	return 12637 * key.v[0] + 16369 * key.v[1] + 20749 * key.v[2];
+}
+
+static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, uint32_t* val)
+{
+	//get hash:
+	size_t hash = qobj_hashmap_hash(key) % map->cap;
+
+	//linear probing:
+	bool found = false;
+	while(map->keys[hash].v[0] != UINT32_MAX)
+	{		
+		if(map->keys[hash].v[0] = key.v[0] && map->keys[hash].v[1] = key.v[1] && map->keys[hash].v[2] = key.v[2])
+		{
+			found = true;
+			break;
+		}
+
+		hash++;
+		hash %= map->cap;
+	}
+
+	if(found)
+		*val = map->vals[hash];
+	else
+	{
+		map->keys[hash] = key;
+		map->vals[hash] = *val;
+		map->size++;
+	}
+
+	//resize and rehash if needed:
+	if(map->size >= map->cap / 2)
+	{
+		size_t oldCap = map->cap;
+		map->cap *= 2;
+
+		QOBJuvec3* newKeys = malloc(map->cap * sizeof(QOBJuvec3));
+		if(!newKeys)
+			return QOBJ_ERROR_OUT_OF_MEM;
+		uint32_t* newVals = malloc(map->cal * sizeof(uint32_t));
+		if(!newVals)
+		{
+			free(newKeys);
+			return QOBJ_ERROR_OUT_OF_MEM;
+		}
+
+		memset(newKeys, UINT8_MAX, map->cap * sizeof(QOBJvec3));
+
+		for(uint32_t i = 0; i < oldCap; i++)
+		{
+			if(map->keys[i].v[0] == UINT32_MAX)
+				continue;
+
+			size_t newHash = qobj_hashmap_hash(map->keys[i]) % map->cap;
+			newKeys[newHash] = map->keys[i];
+			newVals[newHash] = map->vals[i];
+		}
+
+		free(map->keys);
+		free(map->vals);
+		map->keys = newKeys;
+		map->vals = newVals;
+	}
+
+	return QOBJ_SUCCESS;
+}
+
+//----------------------------------------------------------------------//
+//OBJ FUNCTIONS:
 
 static inline QOBJerror qobj_next_token(FILE* fptr, size_t maxTokenLen, char** token, char* endCh)
 {
@@ -112,7 +218,7 @@ static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize,
 
 static void qobj_free(size_t numMeshes, QOBJmesh* meshes)
 {
-	for(int i = 0; i < numMeshes; i++)
+	for(uint32_t i = 0; i < numMeshes; i++)
 	{
 		free(meshes[i].vertices);
 		free(meshes[i].indices);
@@ -142,11 +248,16 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	QOBJvec3* positions = malloc(positionCap * sizeof(QOBJvec3));
 	QOBJvec3* normals   = malloc(normalCap   * sizeof(QOBJvec3));
 	QOBJvec2* texCoords = malloc(texCoordCap * sizeof(QOBJvec2));
+	if(!positions || !normals || !texCoords)
+	{
+		errorCode = QOBJ_ERROR_OUT_OF_MEM;
+		goto cleanup;
+	}
 
 	*numMeshes = 0;
 
-	const size_t MAX_TOKEN_LEN = 64;
-	char* curToken = malloc((MAX_TOKEN_LEN + 1) * sizeof(char));
+	const size_t MAX_TOKEN_LEN = 128;
+	char curToken[MAX_TOKEN_LEN];
 	char curTokenEnd;
 
 	size_t curMesh = 1;
@@ -160,7 +271,11 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			goto cleanup;
 		}
 
-		if(curToken[0] == '#' || strcmp(curToken, "o") == 0 || strcmp(curToken, "g") == 0) //comment / ignored commands
+		if(curToken[0] == '\0')
+			continue;
+
+		if(curToken[0] == '#'         || strcmp(curToken, "o") == 0 || 
+		   strcmp(curToken, "g") == 0 || strcmp(curToken, "s") == 0) //comments / ignored commands
 		{
 			if(curTokenEnd == ' ')
 				fgets(curToken, MAX_TOKEN_LEN, fptr);
@@ -209,44 +324,53 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			QOBJuvec3 vertices[4];
 
 			int32_t i = 0;
-			while(true)
+			while(i < 4)
 			{
+				//read position:
 				fscanf(fptr, "%d", &vertices[i].v[0]);
-				i++;
 
 				char nextCh = fgetc(fptr);
 				if(nextCh == ' ')
 					continue;
 				else if(nextCh == '\n')
 					break;
+
+				//read normal (if no texture coordinates exist):
+				nextCh = fgetc(fptr);
+				if(nextCh == '/')
+					fscanf(fptr, "%d", &vertices[i].v[3]);
 				else
-				{
-					nextCh = fgetc(fptr);
-					if(nextCh == '/')
-						fscanf(fptr, "%d", &vertices[i].v[3]);
-					else
-						ungetc(nextCh, fptr);
+					ungetc(nextCh, fptr);
+				
+				//read texture coordinates:
+				fscanf(fptr, "%d", &vertices[i].v[2]);
 					
-					fscanf(fptr, "%d", &vertices[i].v[2]);
-					
-					nextCh = fgetc(fptr);
-					if(nextCh == '/')
-						fscanf(fptr, "%d", &vertices[i].v[3]);
-					else
-						ungetc(nextCh, fptr);
-				}				
+				//read normal (if nexture coordinates exist):
+				nextCh = fgetc(fptr);
+				if(nextCh == '/')
+					fscanf(fptr, "%d", &vertices[i].v[3]);
+				else
+					ungetc(nextCh, fptr);
+				
+				//break if at end
+				nextCh = fgetc(fptr);
+				if(nextCh == '\n')
+					break;
+
+				i++;			
 			}
+
+			i++;
 		}
 		else if(strcmp(curToken, "usemtl") == 0)
 		{
-			char materialName[128];
-			fgets(materialName, 128, fptr);
+			fgets(curToken, MAX_TOKEN_LEN, fptr);
 
 			for(curMesh = 0; curMesh < *numMeshes; crMesh++)
-				if(strcmp((*meshes)[i].materialName, materialName) == 0)
+				if(strcmp((*meshes)[i].materialName, curToken) == 0)
 					break;
 
-			if(curMesh >= numMeshes)
+			if(curMesh >= *numMeshes)
 			{
 				(*numMeshes)++;
 				*meshes = realloc(*meshes, *numMeshes * sizeof(QOBJmesh));
