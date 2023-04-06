@@ -55,7 +55,7 @@ typedef struct QOBJmesh
 	size_t numIndices;
 	uint32_t* indices;
 
-	const char* materialName;
+	char* materialName;
 	QOBJmaterial material;
 } QOBJmesh;
 
@@ -117,12 +117,12 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 	size_t hash = qobj_hashmap_hash(key) % map->cap;
 
 	//linear probing:
-	bool found = false;
+	int32_t found = 0;
 	while(map->keys[hash].v[0] != UINT32_MAX)
 	{		
-		if(map->keys[hash].v[0] = key.v[0] && map->keys[hash].v[1] = key.v[1] && map->keys[hash].v[2] = key.v[2])
+		if(map->keys[hash].v[0] == key.v[0] && map->keys[hash].v[1] == key.v[1] && map->keys[hash].v[2] == key.v[2])
 		{
-			found = true;
+			found = 1;
 			break;
 		}
 
@@ -148,7 +148,7 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 		QOBJuvec3* newKeys = malloc(map->cap * sizeof(QOBJuvec3));
 		if(!newKeys)
 			return QOBJ_ERROR_OUT_OF_MEM;
-		uint32_t* newVals = malloc(map->cal * sizeof(uint32_t));
+		uint32_t* newVals = malloc(map->cap * sizeof(uint32_t));
 		if(!newVals)
 		{
 			free(newKeys);
@@ -184,7 +184,7 @@ static inline QOBJerror qobj_next_token(FILE* fptr, size_t maxTokenLen, char** t
 	char curCh;
 	size_t curLen = 0;
 
-	while(true)
+	while(1)
 	{
 		if(curLen >= maxTokenLen)
 			return QOBJ_ERROR_MAX_TOKEN_LEN;
@@ -222,7 +222,7 @@ static void qobj_free(size_t numMeshes, QOBJmesh* meshes)
 	{
 		free(meshes[i].vertices);
 		free(meshes[i].indices);
-		free(meshes[i].materialName)
+		free(meshes[i].materialName);
 	}
 
 	if(numMeshes > 0)
@@ -257,12 +257,12 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	*numMeshes = 0;
 
 	const size_t MAX_TOKEN_LEN = 128;
-	char curToken[MAX_TOKEN_LEN];
+	char* curToken = malloc(sizeof(char) * MAX_TOKEN_LEN);
 	char curTokenEnd;
 
 	size_t curMesh = 1;
 
-	while(true)
+	while(1)
 	{
 		QOBJerror tokenError = qobj_next_token(fptr, MAX_TOKEN_LEN, &curToken, &curTokenEnd);
 		if(tokenError != QOBJ_SUCCESS)
@@ -278,7 +278,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		   strcmp(curToken, "g") == 0 || strcmp(curToken, "s") == 0) //comments / ignored commands
 		{
 			if(curTokenEnd == ' ')
-				fgets(curToken, MAX_TOKEN_LEN, fptr);
+				fgets(curToken, (int32_t)MAX_TOKEN_LEN, fptr);
 		}
 		else if(strcmp(curToken, "v") == 0)
 		{
@@ -364,10 +364,10 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 		else if(strcmp(curToken, "usemtl") == 0)
 		{
-			fgets(curToken, MAX_TOKEN_LEN, fptr);
+			fgets(curToken, (int32_t)MAX_TOKEN_LEN, fptr);
 
-			for(curMesh = 0; curMesh < *numMeshes; crMesh++)
-				if(strcmp((*meshes)[i].materialName, curToken) == 0)
+			for(curMesh = 0; curMesh < *numMeshes; curMesh++)
+				if(strcmp((*meshes)[curMesh].materialName, curToken) == 0)
 					break;
 
 			if(curMesh >= *numMeshes)
