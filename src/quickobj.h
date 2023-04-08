@@ -430,9 +430,9 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 				if(indexToAdd == (uint32_t)mesh->numVertices)
 				{
 					QOBJvertex vertex;
-					vertex.pos = positions[vertices[i].v[0]];
-					vertex.texCoord = texCoords[vertices[i].v[1]];
-					vertex.normal = normals[vertices[i].v[2]];
+					vertex.pos      = positions[vertices[i].v[0] - 1];
+					vertex.texCoord = texCoords[vertices[i].v[1] - 1];
+					vertex.normal   = normals  [vertices[i].v[2] - 1];
 
 					mesh->vertices[mesh->numVertices++] = vertex;
 				}
