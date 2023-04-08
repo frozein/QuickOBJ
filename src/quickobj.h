@@ -88,10 +88,10 @@ static QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
 {
 	map->size = 0;
 	map->cap = 32;
-	map->keys = malloc(map->cap * sizeof(QOBJuvec3));
+	map->keys = (QOBJuvec3*)malloc(map->cap * sizeof(QOBJuvec3));
 	if(!map->keys)
 		return QOBJ_ERROR_OUT_OF_MEM;
-	map->vals = malloc(map->cap * sizeof(uint32_t));
+	map->vals = (uint32_t*)malloc(map->cap * sizeof(uint32_t));
 	if(!map->vals)
 	{
 		free(map->keys);
@@ -148,10 +148,10 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 		size_t oldCap = map->cap;
 		map->cap *= 2;
 
-		QOBJuvec3* newKeys = malloc(map->cap * sizeof(QOBJuvec3));
+		QOBJuvec3* newKeys = (QOBJuvec3*)malloc(map->cap * sizeof(QOBJuvec3));
 		if(!newKeys)
 			return QOBJ_ERROR_OUT_OF_MEM;
-		uint32_t* newVals = malloc(map->cap * sizeof(uint32_t));
+		uint32_t* newVals = (uint32_t*)malloc(map->cap * sizeof(uint32_t));
 		if(!newVals)
 		{
 			free(newKeys);
@@ -189,18 +189,18 @@ static QOBJerror qobj_mesh_create(QOBJmesh* mesh, const char* materialName)
 	mesh->numVertices = 0;
 	mesh->numIndices  = 0;
 
-	mesh->vertices = malloc(mesh->vertexCap * sizeof(QOBJvertex));
+	mesh->vertices = (QOBJvertex*)malloc(mesh->vertexCap * sizeof(QOBJvertex));
 	if(!mesh->vertices)
 		return QOBJ_ERROR_OUT_OF_MEM;
 
-	mesh->indices = malloc(mesh->indexCap * sizeof(uint32_t));
+	mesh->indices = (uint32_t*)malloc(mesh->indexCap * sizeof(uint32_t));
 	if(!mesh->indices)
 	{
 		free(mesh->vertices);
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
-	mesh->materialName = malloc(strlen(materialName) * sizeof(char));
+	mesh->materialName = (char*)malloc(strlen(materialName) * sizeof(char));
 	strcpy(mesh->materialName, materialName);
 	if(!mesh->materialName)
 	{
@@ -285,16 +285,16 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	//initialize memory:
 	size_t positionSize = 0 , normalSize = 0 , texCoordSize = 0;
 	size_t positionCap  = 32, normalCap  = 32, texCoordCap  = 32;
-	QOBJvec3* positions = malloc(positionCap * sizeof(QOBJvec3));
-	QOBJvec3* normals   = malloc(normalCap   * sizeof(QOBJvec3));
-	QOBJvec2* texCoords = malloc(texCoordCap * sizeof(QOBJvec2));
+	QOBJvec3* positions = (QOBJvec3*)malloc(positionCap * sizeof(QOBJvec3));
+	QOBJvec3* normals   = (QOBJvec3*)malloc(normalCap   * sizeof(QOBJvec3));
+	QOBJvec2* texCoords = (QOBJvec2*)malloc(texCoordCap * sizeof(QOBJvec2));
 
-	*meshes = malloc(sizeof(QOBJmesh));
-	QOBJvertexHashmap* meshVertexMaps = malloc(sizeof(QOBJvertexHashmap));
+	*meshes = (QOBJmesh*)malloc(sizeof(QOBJmesh));
+	QOBJvertexHashmap* meshVertexMaps = (QOBJvertexHashmap*)malloc(sizeof(QOBJvertexHashmap));
 	*numMeshes = 0;
 
 	const size_t MAX_TOKEN_LEN = 128;
-	char* curToken = malloc(sizeof(char) * MAX_TOKEN_LEN);
+	char* curToken = (char*)malloc(sizeof(char) * MAX_TOKEN_LEN);
 	char curTokenEnd;
 
 	size_t curMesh = 1;
@@ -334,7 +334,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			fscanf(fptr, "%f %f %f\n", &pos.v[0], &pos.v[1], &pos.v[2]);
 
 			positions[positionSize++] = pos;
-			QOBJerror resizeError = qobj_maybe_resize_buffer(&positions, sizeof(QOBJvec3), positionSize, &positionCap);
+			QOBJerror resizeError = qobj_maybe_resize_buffer((void**)&positions, sizeof(QOBJvec3), positionSize, &positionCap);
 			if(resizeError != QOBJ_SUCCESS)
 			{
 				errorCode = resizeError;
@@ -347,7 +347,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			fscanf(fptr, "%f %f %f\n", &normal.v[0], &normal.v[1], &normal.v[2]);
 
 			normals[normalSize++] = normal;
-			QOBJerror resizeError = qobj_maybe_resize_buffer(&normals, sizeof(QOBJvec3), normalSize, &normalCap);
+			QOBJerror resizeError = qobj_maybe_resize_buffer((void**)&normals, sizeof(QOBJvec3), normalSize, &normalCap);
 			if(resizeError != QOBJ_SUCCESS)
 			{
 				errorCode = resizeError;
@@ -360,7 +360,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			fscanf(fptr, "%f %f\n", &texCoord.v[0], &texCoord.v[1]);
 
 			texCoords[texCoordSize++] = texCoord;
-			QOBJerror resizeError = qobj_maybe_resize_buffer(&texCoords, sizeof(QOBJvec2), texCoordSize, &texCoordCap);
+			QOBJerror resizeError = qobj_maybe_resize_buffer((void**)&texCoords, sizeof(QOBJvec2), texCoordSize, &texCoordCap);
 			if(resizeError != QOBJ_SUCCESS)
 			{
 				errorCode = resizeError;
@@ -419,8 +419,8 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			QOBJvertexHashmap* map = &meshVertexMaps[curMesh]; 
 
 			//resize if needed:
-			qobj_maybe_resize_buffer(&mesh->indices, sizeof(uint32_t), mesh->numIndices + numVertices, &mesh->indexCap);
-			qobj_maybe_resize_buffer(&mesh->vertices, sizeof(QOBJvertex), mesh->numVertices + numVertices, &mesh->vertexCap); //this is potentially wasteful since we dont necessarily add each vertex
+			qobj_maybe_resize_buffer((void**)&mesh->indices, sizeof(uint32_t), mesh->numIndices + numVertices, &mesh->indexCap);
+			qobj_maybe_resize_buffer((void**)&mesh->vertices, sizeof(QOBJvertex), mesh->numVertices + numVertices, &mesh->vertexCap); //this is potentially wasteful since we dont necessarily add each vertex
 
 			for(uint32_t i = 0; i < numVertices; i++)
 			{
@@ -451,8 +451,8 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			if(curMesh >= *numMeshes)
 			{
 				(*numMeshes)++;
-				*meshes = realloc(*meshes, *numMeshes * sizeof(QOBJmesh));
-				meshVertexMaps = realloc(meshVertexMaps, *numMeshes * sizeof(QOBJvertexHashmap));
+				*meshes = (QOBJmesh*)realloc(*meshes, *numMeshes * sizeof(QOBJmesh));
+				meshVertexMaps = (QOBJvertexHashmap*)realloc(meshVertexMaps, *numMeshes * sizeof(QOBJvertexHashmap));
 
 				if(!*meshes || !meshVertexMaps)
 				{
