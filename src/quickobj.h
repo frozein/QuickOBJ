@@ -1,3 +1,14 @@
+/* ------------------------------------------------------------------------
+ * 
+ * quickobj.h
+ * author: Daniel Elwell (2023)
+ * license: MIT
+ * description: a single-header library for loading 3D meshes from .obj files, and their
+ * associated materials from .mtl files
+ * 
+ * ------------------------------------------------------------------------
+ */
+
 #ifndef QOBJ_H
 #define QOBJ_H
 
@@ -52,7 +63,19 @@ typedef struct QOBJvertexHashmap
 //a material (not pbr)
 typedef struct QOBJmaterial
 {
-	int test;
+	char* name;
+
+	QOBJvec3 ambientColor;
+	QOBJvec3 diffuseColor;
+	QOBJvec3 specularColor;
+	char* ambientMapPath;  //== NULL if one does not exist
+	char* diffuseMapPath;  //== NULL if one does not exist
+	char* specularMapPath; //== NULL if one does not exist
+	char* normalMapPath;   //== NULL if one does not exist
+
+	float opacity;
+	float specularExp;
+	float refractionIndex;
 } QOBJmaterial;
 
 //a mesh consisting of vertices and indices
@@ -179,6 +202,8 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 	return QOBJ_SUCCESS;
 }
 
+#define QOBJ_MAX_TOKEN_LEN 128
+
 //----------------------------------------------------------------------//
 //MESH FUNCTIONS
 
@@ -220,16 +245,16 @@ static void qobj_mesh_free(QOBJmesh mesh)
 }
 
 //----------------------------------------------------------------------//
-//OBJ FUNCTIONS:
+//HELPER FUNCTIONS:
 
-static inline QOBJerror qobj_next_token(FILE* fptr, size_t maxTokenLen, char** token, char* endCh)
+static inline QOBJerror qobj_next_token(FILE* fptr, char* token, char* endCh)
 {
 	char curCh;
 	size_t curLen = 0;
 
 	while(1)
 	{
-		if(curLen >= maxTokenLen)
+		if(curLen >= QOBJ_MAX_TOKEN_LEN)
 			return QOBJ_ERROR_MAX_TOKEN_LEN;
 
 		curCh = fgetc(fptr);
@@ -237,10 +262,10 @@ static inline QOBJerror qobj_next_token(FILE* fptr, size_t maxTokenLen, char** t
 		if(curCh == ' ' || curCh == '\n' || curCh == EOF)
 			break;
 
-		(*token)[curLen++] = curCh;
+		token[curLen++] = curCh;
 	}
 
-	(*token)[curLen] = '\0';
+	token[curLen] = '\0';
 	*endCh = curCh;
 
 	return QOBJ_SUCCESS;
@@ -260,13 +285,196 @@ static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize,
 	return QOBJ_SUCCESS;
 }
 
+//----------------------------------------------------------------------//
+//MTL FUNCTIONS:
+
+static QOBJmaterial qobj_default_material()
+{
+	QOBJmaterial result = {0};
+
+	result.opacity = 1.0f;
+	result.specularExp = 1.0f;
+	result.refractionIndex = 1.0f;
+
+	return result;
+}
+
+static void qobj_mtl_free(size_t numMaterials, QOBJmaterial* materials)
+{
+	for(uint32_t i = 0; i < numMaterials; i++)
+	{
+		if(materials[i].name)
+			free(materials[i].name);
+
+		if(materials[i].ambientMapPath)
+			free(materials[i].ambientMapPath);
+		if(materials[i].diffuseMapPath)
+			free(materials[i].diffuseMapPath);
+		if(materials[i].specularMapPath)
+			free(materials[i].specularMapPath);
+		if(materials[i].normalMapPath)
+			free(materials[i].normalMapPath);
+	}
+
+	free(materials);
+}
+
+static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmaterial** materials)
+{
+	//ensure file is valid and able to be opened:
+	size_t pathLen = strlen(path);
+	if(pathLen < 4 || strcmp(&path[pathLen - 4], ".mtl") != 0)
+		return QOBJ_ERROR_INVALID_FILE;
+
+	FILE* fptr = fopen(path, "r");
+	if(!fptr)
+		return QOBJ_ERROR_IO;
+
+	QOBJerror errorCode = QOBJ_SUCCESS;
+
+	*materials = (QOBJmaterial*)malloc(sizeof(QOBJmaterial));
+	*numMaterials = 0;
+	size_t curMaterial = 0;
+
+	if(!*materials)
+	{
+		errorCode = QOBJ_ERROR_OUT_OF_MEM;
+		goto cleanup;
+	}
+
+	//main loop:
+	char curToken[QOBJ_MAX_TOKEN_LEN];
+	char curTokenEnd;
+
+	while(1)
+	{
+		QOBJerror tokenError = qobj_next_token(fptr, curToken, &curTokenEnd);
+		if(tokenError != QOBJ_SUCCESS)
+		{
+			errorCode = tokenError;
+			goto cleanup;
+		}
+
+		if(curTokenEnd == EOF)
+			break;
+
+		if(curToken[0] == '\0')
+			continue;
+
+		if(curToken[0] == '#' || strcmp(curToken, "illum") == 0 ||
+		   strcmp(curToken, "Tf") == 0) //comments / ignored commands
+		{
+			if(curTokenEnd == ' ')
+				fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+		}
+		else if(strcmp(curToken, "newmtl") == 0)
+		{
+			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+
+			curMaterial = *numMaterials;
+			(*numMaterials)++;
+			*materials = realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
+			if(!*materials)
+			{
+				errorCode = QOBJ_ERROR_OUT_OF_MEM;
+				goto cleanup;
+			}
+
+			(*materials)[curMaterial] = qobj_default_material();
+		}
+		else if(strcmp(curToken, "Ka") == 0)
+		{
+			QOBJvec3 col;
+			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
+
+			materials[curMaterial]->ambientColor = col;
+		}
+		else if(strcmp(curToken, "Kd") == 0)
+		{
+			QOBJvec3 col;
+			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
+
+			materials[curMaterial]->diffuseColor = col;
+		}
+		else if(strcmp(curToken, "Ks") == 0)
+		{
+			QOBJvec3 col;
+			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
+
+			materials[curMaterial]->specularColor = col;
+		}
+		else if(strcmp(curToken, "d") == 0)
+		{
+			float opacity;
+			fscanf(fptr, "%f\n", &opacity);
+
+			materials[curMaterial]->opacity = opacity;
+		}
+		else if(strcmp(curToken, "Ns") == 0)
+		{
+			float specularExp;
+			fscanf(fptr, "%f\n", &specularExp);
+
+			materials[curMaterial]->specularExp = specularExp;
+		}
+		else if(strcmp(curToken, "Ni") == 0)
+		{
+			float refractionIndex;
+			fscanf(fptr, "%f\n", &refractionIndex);
+
+			materials[curMaterial]->refractionIndex = refractionIndex;
+		}
+		else if(strcmp(curToken, "map_Ka" == 0))
+		{
+			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
+			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+
+			materials[curMaterial]->ambientMapPath = mapPath;
+		}
+		else if(strcmp(curToken, "map_Kd" == 0))
+		{
+			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
+			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+
+			materials[curMaterial]->diffuseMapPath = mapPath;
+		}
+		else if(strcmp(curToken, "map_Ks" == 0))
+		{
+			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
+			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+
+			materials[curMaterial]->specularMapPath = mapPath;
+		}
+		else if(strcmp(curToken, "map_Bump" == 0))
+		{
+			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
+			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+
+			materials[curMaterial]->normalMapPath = mapPath;
+		}
+	}
+
+	cleanup: ;
+
+	if(errorCode != QOBJ_SUCCESS)
+	{
+		qobj_mtl_free(*numMaterials, *materials);
+		*numMaterials = 0;
+	}
+
+	fclose(fptr);
+	return errorCode;	
+}
+
+//----------------------------------------------------------------------//
+//OBJ FUNCTIONS:
+
 static void qobj_free(size_t numMeshes, QOBJmesh* meshes)
 {
 	for(uint32_t i = 0; i < numMeshes; i++)
 		qobj_mesh_free(meshes[i]);
 
-	if(numMeshes > 0)
-		free(meshes);
+	free(meshes);
 }
 
 static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes)
@@ -283,6 +491,9 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	QOBJerror errorCode = QOBJ_SUCCESS;
 
 	//initialize memory:
+	size_t numMaterials;
+	QOBJmaterial* materials; //to be initialized later
+
 	size_t positionSize = 0 , normalSize = 0 , texCoordSize = 0;
 	size_t positionCap  = 32, normalCap  = 32, texCoordCap  = 32;
 	QOBJvec3* positions = (QOBJvec3*)malloc(positionCap * sizeof(QOBJvec3));
@@ -292,24 +503,22 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	*meshes = (QOBJmesh*)malloc(sizeof(QOBJmesh));
 	QOBJvertexHashmap* meshVertexMaps = (QOBJvertexHashmap*)malloc(sizeof(QOBJvertexHashmap));
 	*numMeshes = 0;
-
-	const size_t MAX_TOKEN_LEN = 128;
-	char* curToken = (char*)malloc(sizeof(char) * MAX_TOKEN_LEN);
-	char curTokenEnd;
-
 	size_t curMesh = 1;
 
-	//ensure memory was properly allocated
-	if(!positions || !normals || !texCoords || !curToken)
+	//ensure memory was properly allocated:
+	if(!positions || !normals || !texCoords || !*meshes || !meshVertexMaps)
 	{
 		errorCode = QOBJ_ERROR_OUT_OF_MEM;
 		goto cleanup;
 	}
 
 	//main loop:
+	char curToken[QOBJ_MAX_TOKEN_LEN];
+	char curTokenEnd;
+
 	while(1)
 	{
-		QOBJerror tokenError = qobj_next_token(fptr, MAX_TOKEN_LEN, &curToken, &curTokenEnd);
+		QOBJerror tokenError = qobj_next_token(fptr, curToken, &curTokenEnd);
 		if(tokenError != QOBJ_SUCCESS)
 		{
 			errorCode = tokenError;
@@ -326,7 +535,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		   strcmp(curToken, "g") == 0 || strcmp(curToken, "s") == 0) //comments / ignored commands
 		{
 			if(curTokenEnd == ' ')
-				fgets(curToken, (int32_t)MAX_TOKEN_LEN, fptr);
+				fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
 		}
 		else if(strcmp(curToken, "v") == 0)
 		{
@@ -442,7 +651,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 		else if(strcmp(curToken, "usemtl") == 0)
 		{
-			fgets(curToken, (int32_t)MAX_TOKEN_LEN, fptr);
+			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
 
 			for(curMesh = 0; curMesh < *numMeshes; curMesh++)
 				if(strcmp((*meshes)[curMesh].materialName, curToken) == 0)
@@ -479,8 +688,31 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 		else if(strcmp(curToken, "mtllib") == 0)
 		{
-			fgets(curToken, (int32_t)MAX_TOKEN_LEN, fptr);
-			//TODO
+			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+			
+			//get directory of current file:
+			uint32_t i = 0;
+			uint32_t lastSlash = 0;
+
+			while(path[i])
+			{
+				if(path[i] == '/' || path[i] == '\\')
+					lastSlash = i;
+
+				i++;
+			}
+
+			char mtlPath[QOBJ_MAX_TOKEN_LEN];
+			strncpy(mtlPath, path, lastSlash + 1);
+			mtlPath[lastSlash + 1] = '\0';
+			strcat(mtlPath, curToken);
+
+			QOBJerror mtlError = qobj_mtl_load(mtlPath, &numMaterials, &materials);
+			if(mtlError != QOBJ_SUCCESS)
+			{
+				errorCode = mtlError;
+				goto cleanup;
+			}
 		}
 		else
 		{
@@ -490,9 +722,6 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	}
 
 	cleanup: ;
-
-	if(curToken)
-		free(curToken);
 
 	for(uint32_t i = 0; i < *numMeshes; i++)
 		qobj_hashmap_free(meshVertexMaps[i]);

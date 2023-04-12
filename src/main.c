@@ -6,7 +6,7 @@ int main()
 	size_t numMeshes;
 	QOBJmesh* meshes;
 
-	if(qobj_load("viking_room.obj", &numMeshes, &meshes) != QOBJ_SUCCESS)
+	if(qobj_load("test/viking_room.obj", &numMeshes, &meshes) != QOBJ_SUCCESS)
 		return -1;
 
 	qobj_free(numMeshes, meshes);
