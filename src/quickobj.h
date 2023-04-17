@@ -89,8 +89,7 @@ typedef struct QOBJmesh
 	size_t indexCap;
 	uint32_t* indices;
 
-	char* materialName;
-	QOBJmaterial material;
+	uint32_t materialIdx;
 } QOBJmesh;
 
 //an error value, returned by all functions which can have errors
@@ -99,7 +98,6 @@ typedef enum QOBJerror
 	QOBJ_SUCCESS = 0,
 	QOBJ_ERROR_INVALID_FILE,
 	QOBJ_ERROR_IO,
-	QOBJ_ERROR_MAX_TOKEN_LEN,
 	QOBJ_ERROR_OUT_OF_MEM,
 	QOBJ_ERROR_UNSUPPORTED_DATA_TYPE
 } QOBJerror;
@@ -207,7 +205,7 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 //----------------------------------------------------------------------//
 //MESH FUNCTIONS
 
-static QOBJerror qobj_mesh_create(QOBJmesh* mesh, const char* materialName)
+static QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t materialIdx)
 {
 	mesh->vertexCap = 32;
 	mesh->indexCap  = 32;
@@ -225,14 +223,7 @@ static QOBJerror qobj_mesh_create(QOBJmesh* mesh, const char* materialName)
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
-	mesh->materialName = (char*)malloc(strlen(materialName) * sizeof(char));
-	strcpy(mesh->materialName, materialName);
-	if(!mesh->materialName)
-	{
-		free(mesh->vertices);
-		free(mesh->indices);
-		return QOBJ_ERROR_OUT_OF_MEM;
-	}
+	mesh->materialIdx = materialIdx;
 
 	return QOBJ_SUCCESS;
 }
@@ -241,13 +232,12 @@ static void qobj_mesh_free(QOBJmesh mesh)
 {
 	free(mesh.vertices);
 	free(mesh.indices);
-	free(mesh.materialName);
 }
 
 //----------------------------------------------------------------------//
 //HELPER FUNCTIONS:
 
-static inline QOBJerror qobj_next_token(FILE* fptr, char* token, char* endCh)
+static inline void qobj_next_token(FILE* fptr, char* token, char* endCh)
 {
 	char curCh;
 	size_t curLen = 0;
@@ -255,7 +245,10 @@ static inline QOBJerror qobj_next_token(FILE* fptr, char* token, char* endCh)
 	while(1)
 	{
 		if(curLen >= QOBJ_MAX_TOKEN_LEN)
-			return QOBJ_ERROR_MAX_TOKEN_LEN;
+		{
+			curLen--;
+			break;
+		}
 
 		curCh = fgetc(fptr);
 
@@ -267,8 +260,14 @@ static inline QOBJerror qobj_next_token(FILE* fptr, char* token, char* endCh)
 
 	token[curLen] = '\0';
 	*endCh = curCh;
+}
 
-	return QOBJ_SUCCESS;
+static inline void qobj_fgets(FILE* fptr, char* token, char* endCh)
+{
+	fgets(token, QOBJ_MAX_TOKEN_LEN, fptr);
+	size_t last = strlen(token) - 1;
+	*endCh = token[last];
+	token[last] = '\0';
 }
 
 static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize, size_t numElems, size_t* elemCap)
@@ -348,12 +347,7 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 
 	while(1)
 	{
-		QOBJerror tokenError = qobj_next_token(fptr, curToken, &curTokenEnd);
-		if(tokenError != QOBJ_SUCCESS)
-		{
-			errorCode = tokenError;
-			goto cleanup;
-		}
+		qobj_next_token(fptr, curToken, &curTokenEnd);
 
 		if(curTokenEnd == EOF)
 			break;
@@ -365,11 +359,11 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 		   strcmp(curToken, "Tf") == 0) //comments / ignored commands
 		{
 			if(curTokenEnd == ' ')
-				fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+				qobj_fgets(fptr, curToken, &curTokenEnd);
 		}
 		else if(strcmp(curToken, "newmtl") == 0)
 		{
-			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			curMaterial = *numMaterials;
 			(*numMaterials)++;
@@ -381,6 +375,8 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 			}
 
 			(*materials)[curMaterial] = qobj_default_material();
+			(*materials)[curMaterial].name = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			strcpy((*materials)[curMaterial].name, curToken);
 		}
 		else if(strcmp(curToken, "Ka") == 0)
 		{
@@ -426,29 +422,29 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 		}
 		else if(strcmp(curToken, "map_Ka" == 0))
 		{
-			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
-			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			materials[curMaterial]->ambientMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Kd" == 0))
 		{
-			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
-			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			materials[curMaterial]->diffuseMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Ks" == 0))
 		{
-			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
-			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			materials[curMaterial]->specularMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Bump" == 0))
 		{
-			char* mapPath = malloc(QOBJ_ERROR_MAX_TOKEN_LEN * sizeof(char));
-			fgets(mapPath, QOBJ_ERROR_MAX_TOKEN_LEN, fptr);
+			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			materials[curMaterial]->normalMapPath = mapPath;
 		}
@@ -469,15 +465,16 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 //----------------------------------------------------------------------//
 //OBJ FUNCTIONS:
 
-static void qobj_free(size_t numMeshes, QOBJmesh* meshes)
+static void qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, QOBJmaterial* materials)
 {
 	for(uint32_t i = 0; i < numMeshes; i++)
 		qobj_mesh_free(meshes[i]);
 
 	free(meshes);
+	qobj_mtl_free(numMaterials, materials);
 }
 
-static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes)
+static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials)
 {
 	//ensure file is valid and able to be opened:
 	size_t pathLen = strlen(path);
@@ -491,9 +488,6 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	QOBJerror errorCode = QOBJ_SUCCESS;
 
 	//initialize memory:
-	size_t numMaterials;
-	QOBJmaterial* materials; //to be initialized later
-
 	size_t positionSize = 0 , normalSize = 0 , texCoordSize = 0;
 	size_t positionCap  = 32, normalCap  = 32, texCoordCap  = 32;
 	QOBJvec3* positions = (QOBJvec3*)malloc(positionCap * sizeof(QOBJvec3));
@@ -518,12 +512,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 
 	while(1)
 	{
-		QOBJerror tokenError = qobj_next_token(fptr, curToken, &curTokenEnd);
-		if(tokenError != QOBJ_SUCCESS)
-		{
-			errorCode = tokenError;
-			goto cleanup;
-		}
+		qobj_next_token(fptr, curToken, &curTokenEnd);
 
 		if(curTokenEnd == EOF)
 			break;
@@ -535,7 +524,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		   strcmp(curToken, "g") == 0 || strcmp(curToken, "s") == 0) //comments / ignored commands
 		{
 			if(curTokenEnd == ' ')
-				fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+				qobj_fgets(fptr, curToken, &curTokenEnd);
 		}
 		else if(strcmp(curToken, "v") == 0)
 		{
@@ -629,8 +618,9 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 
 			//resize if needed:
 			qobj_maybe_resize_buffer((void**)&mesh->indices, sizeof(uint32_t), mesh->numIndices + numVertices, &mesh->indexCap);
-			qobj_maybe_resize_buffer((void**)&mesh->vertices, sizeof(QOBJvertex), mesh->numVertices + numVertices, &mesh->vertexCap); //this is potentially wasteful since we dont necessarily add each vertex
+			qobj_maybe_resize_buffer((void**)&mesh->vertices, sizeof(QOBJvertex), mesh->numVertices + numVertices, &mesh->vertexCap); //potentially wasteful since we dont necessarily add each vertex
 
+			//add vertices if not already indexed; add indices:
 			for(uint32_t i = 0; i < numVertices; i++)
 			{
 				uint32_t indexToAdd = (uint32_t)mesh->numVertices;
@@ -651,12 +641,23 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 		else if(strcmp(curToken, "usemtl") == 0)
 		{
-			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 
+			//find material:
+			uint32_t materialIdx = UINT32_MAX; //default material
+			for(uint32_t i = 0; i < *numMaterials; i++)
+				if(strcmp((*materials)[i].name, curToken) == 0)
+				{
+					materialIdx = i;
+					break;
+				}
+
+			//search for existing mesh with same material:
 			for(curMesh = 0; curMesh < *numMeshes; curMesh++)
-				if(strcmp((*meshes)[curMesh].materialName, curToken) == 0)
+				if((*meshes)[curMesh].materialIdx == materialIdx)
 					break;
 
+			//add new mesh if needed:
 			if(curMesh >= *numMeshes)
 			{
 				(*numMeshes)++;
@@ -669,7 +670,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 					goto cleanup;
 				}
 
-				QOBJerror meshCreateError = qobj_mesh_create(&(*meshes)[*numMeshes - 1], curToken);
+				QOBJerror meshCreateError = qobj_mesh_create(&(*meshes)[*numMeshes - 1], materialIdx);
 				if(meshCreateError != QOBJ_SUCCESS)
 				{
 					errorCode = meshCreateError;
@@ -682,13 +683,11 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 					errorCode = meshCreateError;
 					goto cleanup;
 				}
-
-				//TODO: SET MATERIAL
 			}
 		}
 		else if(strcmp(curToken, "mtllib") == 0)
 		{
-			fgets(curToken, QOBJ_MAX_TOKEN_LEN, fptr);
+			qobj_fgets(fptr, curToken, &curTokenEnd);
 			
 			//get directory of current file:
 			uint32_t i = 0;
@@ -708,7 +707,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			strcat(mtlPath, curToken);
 
 			QOBJerror mtlError = qobj_mtl_load(mtlPath, &numMaterials, &materials);
-			if(mtlError != QOBJ_SUCCESS)
+			if(mtlError != QOBJ_SUCCESS) //TODO: decide if we should actually throw an error on failed mtl file load since materials arent fully necessary
 			{
 				errorCode = mtlError;
 				goto cleanup;
@@ -721,6 +720,28 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 	}
 
+	//add default material to list if needed:
+	uint8_t addedDefault = 0;
+	for(uint32_t i = 0; i < *numMeshes; i++)
+		if((*meshes)[i].materialIdx == UINT32_MAX)
+		{
+			if(addedDefault)
+			{
+				(*meshes)[i].materialIdx = *numMaterials - 1;
+				continue;
+			}
+
+			(*numMaterials)++;
+			*materials = realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
+			if(!*materials)
+			{
+				errorCode = QOBJ_ERROR_OUT_OF_MEM;
+				goto cleanup;
+			}
+
+			(*materials)[*numMaterials - 1] = qobj_default_material();
+		}
+
 	cleanup: ;
 
 	for(uint32_t i = 0; i < *numMeshes; i++)
@@ -730,7 +751,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 
 	if(errorCode != QOBJ_SUCCESS)
 	{
-		qobj_free(*numMeshes, *meshes);
+		qobj_free(*numMeshes, *meshes, *numMaterials, *materials);
 		*numMeshes = 0;
 	}
 
