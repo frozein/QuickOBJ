@@ -7,6 +7,45 @@
  * associated materials from .mtl files
  * 
  * ------------------------------------------------------------------------
+ * 
+ * NOTE: only supports .obj files with triangles and quads, n-gons will result in an error
+ * 
+ * the following strutures and functions are defined for end use:
+ * (all other functions/structures are meant for internal library use only and do not have documentation)
+ * 
+ * STRUCTURES:
+ * ------------------------------------------------------------------------
+ * QOBJvec2, QOBJvec3:
+ * 		vectors of floats
+ * QOBJvertex 
+ * 		a single triangle vertex
+ * 		layout: position (vec3); normal (vec3); texture coordinate (vec2)
+ * QOBJmaterial
+ * 		a single material (non-PBR)
+ * 		contains:
+ * 			ambient color (vec3); diffuse color (vec3); specular color (vec3)
+ * 			ambient color map (char*); diffuse color map (char*); specular color map (char*); normal map (char*)
+ * 			opacity (float); shininess/specular exponent (float); refraction index (float)
+ * 		NOTE: if a map is NULL, then it does not exist, otherwise, it contains the path to the texture
+ * QOBJmesh
+ * 		a mesh with a single material, uses an index buffer
+ * 		contains:
+ * 			number of vertices (size_t); vertex buffer capacity (size_t) (for internal use, please ignore)
+ * 			array of vertices (QOBJvertex*)
+ * 			number of indices (size_t); index buffer capacity (size_t) (for internal use, please ignore)
+ * 			array of indices (uint32_t*)
+ * 			material index (uint32_t)
+ * 		NOTE: the mesh MUST be rendered with the index buffer
+ * 
+ * FUNCTIONS:
+ * ------------------------------------------------------------------------
+ * qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials)
+ * 		loads a .obj file from [path], including any necessary .mtl files
+ * 		the [numMeshes] and [numMaterials] fields are populated with the number of meshes and materials loaded. respectively
+ * 		the [meshes] and [materials] fields are populated with the array of meshes and materials loaded, respectively
+ * 		NOTE: in order to render the entire model, you must render each mesh in the array, using its corresponding material (the material index field)
+ * qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, QOBJmaterial* materials)
+ * 		frees the memory created by a call to qobj_load, must be called in order to prevent memory leaks
  */
 
 #ifndef QOBJ_H
@@ -56,7 +95,7 @@ typedef struct QOBJvertexHashmap
 {
 	size_t size;
 	size_t cap;
-	QOBJuvec3* keys;
+	QOBJuvec3* keys; //an x component of UINT32_MAX signifies an unused index
 	uint32_t* vals;
 } QOBJvertexHashmap;
 
@@ -338,6 +377,7 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 
 	QOBJerror errorCode = QOBJ_SUCCESS;
 
+	//allocate memory:
 	*materials = (QOBJmaterial*)malloc(sizeof(QOBJmaterial));
 	*numMaterials = 0;
 	size_t curMaterial = 0;
@@ -501,7 +541,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 
 	QOBJerror errorCode = QOBJ_SUCCESS;
 
-	//initialize memory:
+	//allocate memory:
 	size_t positionSize = 0 , normalSize = 0 , texCoordSize = 0;
 	size_t positionCap  = 32, normalCap  = 32, texCoordCap  = 32;
 	QOBJvec3* positions = (QOBJvec3*)malloc(positionCap * sizeof(QOBJvec3));
