@@ -265,9 +265,15 @@ static inline void qobj_next_token(FILE* fptr, char* token, char* endCh)
 static inline void qobj_fgets(FILE* fptr, char* token, char* endCh)
 {
 	fgets(token, QOBJ_MAX_TOKEN_LEN, fptr);
+
 	size_t last = strlen(token) - 1;
-	*endCh = token[last];
-	token[last] = '\0';
+	if(token[last] == '\n')
+	{
+		*endCh = token[last];
+		token[last] = '\0';
+	}
+	else
+		*endCh = EOF;
 }
 
 static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize, size_t numElems, size_t* elemCap)
@@ -315,7 +321,8 @@ static void qobj_mtl_free(size_t numMaterials, QOBJmaterial* materials)
 			free(materials[i].normalMapPath);
 	}
 
-	free(materials);
+	if(materials)
+		free(materials);
 }
 
 static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmaterial** materials)
@@ -383,70 +390,70 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 			QOBJvec3 col;
 			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
 
-			materials[curMaterial]->ambientColor = col;
+			(*materials)[curMaterial].ambientColor = col;
 		}
 		else if(strcmp(curToken, "Kd") == 0)
 		{
 			QOBJvec3 col;
 			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
 
-			materials[curMaterial]->diffuseColor = col;
+			(*materials)[curMaterial].diffuseColor = col;
 		}
 		else if(strcmp(curToken, "Ks") == 0)
 		{
 			QOBJvec3 col;
 			fscanf(fptr, "%f %f %f\n", &col.v[0], &col.v[1], &col.v[2]);
 
-			materials[curMaterial]->specularColor = col;
+			(*materials)[curMaterial].specularColor = col;
 		}
 		else if(strcmp(curToken, "d") == 0)
 		{
 			float opacity;
 			fscanf(fptr, "%f\n", &opacity);
 
-			materials[curMaterial]->opacity = opacity;
+			(*materials)[curMaterial].opacity = opacity;
 		}
 		else if(strcmp(curToken, "Ns") == 0)
 		{
 			float specularExp;
 			fscanf(fptr, "%f\n", &specularExp);
 
-			materials[curMaterial]->specularExp = specularExp;
+			(*materials)[curMaterial].specularExp = specularExp;
 		}
 		else if(strcmp(curToken, "Ni") == 0)
 		{
 			float refractionIndex;
 			fscanf(fptr, "%f\n", &refractionIndex);
 
-			materials[curMaterial]->refractionIndex = refractionIndex;
+			(*materials)[curMaterial].refractionIndex = refractionIndex;
 		}
-		else if(strcmp(curToken, "map_Ka" == 0))
+		else if(strcmp(curToken, "map_Ka") == 0)
 		{
 			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			qobj_fgets(fptr, curToken, &curTokenEnd);
+			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
-			materials[curMaterial]->ambientMapPath = mapPath;
+			(*materials)[curMaterial].ambientMapPath = mapPath;
 		}
-		else if(strcmp(curToken, "map_Kd" == 0))
+		else if(strcmp(curToken, "map_Kd") == 0)
 		{
 			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			qobj_fgets(fptr, curToken, &curTokenEnd);
+			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
-			materials[curMaterial]->diffuseMapPath = mapPath;
+			(*materials)[curMaterial].diffuseMapPath = mapPath;
 		}
-		else if(strcmp(curToken, "map_Ks" == 0))
+		else if(strcmp(curToken, "map_Ks") == 0)
 		{
 			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			qobj_fgets(fptr, curToken, &curTokenEnd);
+			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
-			materials[curMaterial]->specularMapPath = mapPath;
+			(*materials)[curMaterial].specularMapPath = mapPath;
 		}
-		else if(strcmp(curToken, "map_Bump" == 0))
+		else if(strcmp(curToken, "map_Bump") == 0)
 		{
 			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			qobj_fgets(fptr, curToken, &curTokenEnd);
+			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
-			materials[curMaterial]->normalMapPath = mapPath;
+			(*materials)[curMaterial].normalMapPath = mapPath;
 		}
 	}
 
@@ -470,12 +477,19 @@ static void qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, Q
 	for(uint32_t i = 0; i < numMeshes; i++)
 		qobj_mesh_free(meshes[i]);
 
-	free(meshes);
+	if(meshes)
+		free(meshes);
+
 	qobj_mtl_free(numMaterials, materials);
 }
 
 static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials)
 {
+	*numMeshes = 0;
+	*meshes = NULL;
+	*numMaterials = 0;
+	*materials = NULL;
+
 	//ensure file is valid and able to be opened:
 	size_t pathLen = strlen(path);
 	if(pathLen < 4 || strcmp(&path[pathLen - 4], ".obj") != 0)
@@ -497,7 +511,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	*meshes = (QOBJmesh*)malloc(sizeof(QOBJmesh));
 	QOBJvertexHashmap* meshVertexMaps = (QOBJvertexHashmap*)malloc(sizeof(QOBJvertexHashmap));
 	*numMeshes = 0;
-	size_t curMesh = 1;
+	size_t curMesh = 0;
 
 	//ensure memory was properly allocated:
 	if(!positions || !normals || !texCoords || !*meshes || !meshVertexMaps)
@@ -567,9 +581,23 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 		}
 		else if(strcmp(curToken, "f") == 0)
 		{
-			QOBJuvec3 vertices[4];
+			//if no material was selected (this always occurs first):
+			if(curMesh >= *numMeshes)
+			{
+				curMesh = 0;
+				*numMeshes = 1;
+
+				QOBJerror meshCreateError = qobj_mesh_create(&(*meshes)[curMesh], UINT32_MAX); //default material
+				if(meshCreateError != QOBJ_SUCCESS)
+				{
+					errorCode = meshCreateError;
+					goto cleanup;
+				}
+			}
 
 			uint32_t numVertices = 0;
+			QOBJuvec3 vertices[6];
+
 			while(numVertices < 4)
 			{
 				//read position:
@@ -607,10 +635,15 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			}
 			numVertices++;
 
-			if(numVertices > 3)
+			//split quad into 2 triangles:
+			if(numVertices == 4)
 			{
-				printf("not working");
-				//triangulate quad
+				QOBJuvec3 temp = vertices[3];
+				vertices[3] = vertices[0];
+				vertices[4] = vertices[2];
+				vertices[5] = temp;
+
+				numVertices = 6;
 			}
 
 			QOBJmesh* mesh = &(*meshes)[curMesh];
@@ -670,14 +703,14 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 					goto cleanup;
 				}
 
-				QOBJerror meshCreateError = qobj_mesh_create(&(*meshes)[*numMeshes - 1], materialIdx);
+				QOBJerror meshCreateError = qobj_mesh_create(&(*meshes)[curMesh], materialIdx);
 				if(meshCreateError != QOBJ_SUCCESS)
 				{
 					errorCode = meshCreateError;
 					goto cleanup;
 				}
 
-				meshCreateError = qobj_hashmap_create(&meshVertexMaps[*numMeshes - 1]);
+				meshCreateError = qobj_hashmap_create(&meshVertexMaps[curMesh]);
 				if(meshCreateError != QOBJ_SUCCESS)
 				{
 					errorCode = meshCreateError;
@@ -706,7 +739,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			mtlPath[lastSlash + 1] = '\0';
 			strcat(mtlPath, curToken);
 
-			QOBJerror mtlError = qobj_mtl_load(mtlPath, &numMaterials, &materials);
+			QOBJerror mtlError = qobj_mtl_load(mtlPath, numMaterials, materials);
 			if(mtlError != QOBJ_SUCCESS) //TODO: decide if we should actually throw an error on failed mtl file load since materials arent fully necessary
 			{
 				errorCode = mtlError;
