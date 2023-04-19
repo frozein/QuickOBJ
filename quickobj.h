@@ -414,7 +414,7 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 
 			curMaterial = *numMaterials;
 			(*numMaterials)++;
-			*materials = realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
+			*materials = (QOBJmaterial*)realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
 			if(!*materials)
 			{
 				errorCode = QOBJ_ERROR_OUT_OF_MEM;
@@ -422,7 +422,7 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 			}
 
 			(*materials)[curMaterial] = qobj_default_material();
-			(*materials)[curMaterial].name = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			(*materials)[curMaterial].name = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			strcpy((*materials)[curMaterial].name, curToken);
 		}
 		else if(strcmp(curToken, "Ka") == 0)
@@ -469,28 +469,28 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 		}
 		else if(strcmp(curToken, "map_Ka") == 0)
 		{
-			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].ambientMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Kd") == 0)
 		{
-			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].diffuseMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Ks") == 0)
 		{
-			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].specularMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Bump") == 0)
 		{
-			char* mapPath = malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].normalMapPath = mapPath;
@@ -805,7 +805,7 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 			}
 
 			(*numMaterials)++;
-			*materials = realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
+			*materials = (QOBJmaterial*)realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
 			if(!*materials)
 			{
 				errorCode = QOBJ_ERROR_OUT_OF_MEM;
