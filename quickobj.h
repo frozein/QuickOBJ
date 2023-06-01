@@ -10,7 +10,7 @@
  * 
  * NOTE: only supports .obj files with triangles and quads, n-gons will result in an error
  * 
- * to use you must "#define QOBJ_IMPLEMENTATION" in exactly one source file
+ * to use you must "#define QOBJ_IMPLEMENTATION" in exactly one source file before including the library
  * 
  * the following strutures and functions are defined for end use:
  * (all other functions/structures are meant for internal library use only and do not have documentation)
