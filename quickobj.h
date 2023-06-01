@@ -10,6 +10,8 @@
  * 
  * NOTE: only supports .obj files with triangles and quads, n-gons will result in an error
  * 
+ * to use you must "#define QOBJ_IMPLEMENTATION" in exactly one source file
+ * 
  * the following strutures and functions are defined for end use:
  * (all other functions/structures are meant for internal library use only and do not have documentation)
  * 
@@ -57,12 +59,9 @@ extern "C"
 #endif
 
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <malloc.h>
 
 //----------------------------------------------------------------------//
-//STRUCT DEFINITIONS:
+//DECLARATIONS:
 
 //a 2-dimensional vector of floats
 typedef struct QOBJvec2
@@ -76,12 +75,6 @@ typedef struct QOBJvec3
 	float v[3];
 } QOBJvec3;
 
-//a 3-dimensional vector of unsigned integers
-typedef struct QOBJuvec3
-{
-	uint32_t v[3];
-} QOBJuvec3;
-
 //a single vertex with position, normal, and texture coordinates
 typedef struct QOBJvertex
 {
@@ -89,15 +82,6 @@ typedef struct QOBJvertex
 	QOBJvec3 normal;
 	QOBJvec2 texCoord;
 } QOBJvertex;
-
-//a hashmap with a vec3 of vertex data indices for keys
-typedef struct QOBJvertexHashmap
-{
-	size_t size;
-	size_t cap;
-	QOBJuvec3* keys; //an x component of UINT32_MAX signifies an unused index
-	uint32_t* vals;
-} QOBJvertexHashmap;
 
 //a material (not pbr)
 typedef struct QOBJmaterial
@@ -141,10 +125,39 @@ typedef enum QOBJerror
 	QOBJ_ERROR_UNSUPPORTED_DATA_TYPE
 } QOBJerror;
 
+QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials);
+void qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, QOBJmaterial* materials);
+
+//----------------------------------------------------------------------//
+
+#ifdef QOBJ_IMPLEMENTATION
+
+#include <stdio.h>
+#include <string.h>
+#include <malloc.h>
+
+//----------------------------------------------------------------------//
+//IMPLEMENTATION STRUCTS:
+
+//a 3-dimensional vector of unsigned integers
+typedef struct QOBJuvec3
+{
+	uint32_t v[3];
+} QOBJuvec3;
+
+//a hashmap with a vec3 of vertex data indices for keys
+typedef struct QOBJvertexHashmap
+{
+	size_t size;
+	size_t cap;
+	QOBJuvec3* keys; //an x component of UINT32_MAX signifies an unused index
+	uint32_t* vals;
+} QOBJvertexHashmap;
+
 //----------------------------------------------------------------------//
 //HASH MAP FUNCTIONS:
 
-static QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
+QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
 {
 	map->size = 0;
 	map->cap = 32;
@@ -163,18 +176,18 @@ static QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
 	return QOBJ_SUCCESS;
 }
 
-static void qobj_hashmap_free(QOBJvertexHashmap map)
+void qobj_hashmap_free(QOBJvertexHashmap map)
 {
 	free(map.keys);
 	free(map.vals);
 }
 
-static inline size_t qobj_hashmap_hash(QOBJuvec3 key)
+inline size_t qobj_hashmap_hash(QOBJuvec3 key)
 {
 	return 12637 * key.v[0] + 16369 * key.v[1] + 20749 * key.v[2];
 }
 
-static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, uint32_t* val)
+QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, uint32_t* val)
 {
 	//get hash:
 	size_t hash = qobj_hashmap_hash(key) % map->cap;
@@ -244,7 +257,7 @@ static QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJuvec3 key, 
 //----------------------------------------------------------------------//
 //MESH FUNCTIONS
 
-static QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t materialIdx)
+QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t materialIdx)
 {
 	mesh->vertexCap = 32;
 	mesh->indexCap  = 32;
@@ -267,7 +280,7 @@ static QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t materialIdx)
 	return QOBJ_SUCCESS;
 }
 
-static void qobj_mesh_free(QOBJmesh mesh)
+void qobj_mesh_free(QOBJmesh mesh)
 {
 	free(mesh.vertices);
 	free(mesh.indices);
@@ -276,7 +289,7 @@ static void qobj_mesh_free(QOBJmesh mesh)
 //----------------------------------------------------------------------//
 //HELPER FUNCTIONS:
 
-static inline void qobj_next_token(FILE* fptr, char* token, char* endCh)
+inline void qobj_next_token(FILE* fptr, char* token, char* endCh)
 {
 	char curCh;
 	size_t curLen = 0;
@@ -301,7 +314,7 @@ static inline void qobj_next_token(FILE* fptr, char* token, char* endCh)
 	*endCh = curCh;
 }
 
-static inline void qobj_fgets(FILE* fptr, char* token, char* endCh)
+inline void qobj_fgets(FILE* fptr, char* token, char* endCh)
 {
 	fgets(token, QOBJ_MAX_TOKEN_LEN, fptr);
 
@@ -315,7 +328,7 @@ static inline void qobj_fgets(FILE* fptr, char* token, char* endCh)
 		*endCh = EOF;
 }
 
-static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize, size_t numElems, size_t* elemCap)
+inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize, size_t numElems, size_t* elemCap)
 {
 	if(numElems < *elemCap)
 		return QOBJ_SUCCESS;
@@ -332,7 +345,7 @@ static inline QOBJerror qobj_maybe_resize_buffer(void** buffer, size_t elemSize,
 //----------------------------------------------------------------------//
 //MTL FUNCTIONS:
 
-static QOBJmaterial qobj_default_material()
+QOBJmaterial qobj_default_material()
 {
 	QOBJmaterial result = {0};
 
@@ -343,7 +356,7 @@ static QOBJmaterial qobj_default_material()
 	return result;
 }
 
-static void qobj_mtl_free(size_t numMaterials, QOBJmaterial* materials)
+void qobj_mtl_free(size_t numMaterials, QOBJmaterial* materials)
 {
 	for(uint32_t i = 0; i < numMaterials; i++)
 	{
@@ -364,7 +377,7 @@ static void qobj_mtl_free(size_t numMaterials, QOBJmaterial* materials)
 		free(materials);
 }
 
-static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmaterial** materials)
+QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmaterial** materials)
 {
 	//ensure file is valid and able to be opened:
 	size_t pathLen = strlen(path);
@@ -512,18 +525,7 @@ static QOBJerror qobj_mtl_load(const char* path, size_t* numMaterials, QOBJmater
 //----------------------------------------------------------------------//
 //OBJ FUNCTIONS:
 
-static void qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, QOBJmaterial* materials)
-{
-	for(uint32_t i = 0; i < numMeshes; i++)
-		qobj_mesh_free(meshes[i]);
-
-	if(meshes)
-		free(meshes);
-
-	qobj_mtl_free(numMaterials, materials);
-}
-
-static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials)
+QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshes, size_t* numMaterials, QOBJmaterial** materials)
 {
 	*numMeshes = 0;
 	*meshes = NULL;
@@ -838,6 +840,21 @@ static QOBJerror qobj_load(const char* path, size_t* numMeshes, QOBJmesh** meshe
 	fclose(fptr);
 	return errorCode;
 }
+
+void qobj_free(size_t numMeshes, QOBJmesh* meshes, size_t numMaterials, QOBJmaterial* materials)
+{
+	for(uint32_t i = 0; i < numMeshes; i++)
+		qobj_mesh_free(meshes[i]);
+
+	if(meshes)
+		free(meshes);
+
+	qobj_mtl_free(numMaterials, materials);
+}
+
+//----------------------------------------------------------------------//
+
+#endif //#ifdef QOBJ_IMPLEMENTATION
 
 #ifdef __cplusplus
 } //extern "C"
