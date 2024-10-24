@@ -10,6 +10,10 @@
  * 
  * to use you must "#define QOBJ_IMPLEMENTATION" in exactly one source file before including the library
  * 
+ * if you wish to use a custom memory allocator instead of the default malloc(), you must 
+ * "#define QOBJ_MALLOC(s) my_malloc(s)", "#define QOBJ_FREE(p) my_free(p)", and "#define QOBJ_REALLOC(p, s) my_realloc(p, s)"
+ * before including the library in the same source file you used "#define QOBJ_IMPLEMENTATION"
+ * 
  * the following strutures, enums, and functions are defined for end use:
  * (all other functions/structures are meant for internal library use only and do not have documentation)
  * 
@@ -164,7 +168,14 @@ void qobj_free_mtl(uint32_t numMaterials, QOBJmaterial* materials);
 
 #include <stdio.h>
 #include <string.h>
-#include <malloc.h>
+
+#if !defined(QOBJ_MALLOC) || !defined(QOBJ_FREE) || !defined(QOBJ_FREE)
+	#include <malloc.h>
+
+	#define QOBJ_MALLOC(s) malloc(s)
+	#define QOBJ_FREE(p) free(p)
+	#define QOBJ_REALLOC(p, s) realloc(p, s)
+#endif
 
 #define QOBJ_ATTRIB_SIZE_POSITION   3
 #define QOBJ_ATTRIB_SIZE_NORMAL     3
@@ -249,7 +260,7 @@ inline QOBJerror qobj_maybe_resize_array(void** buffer, size_t elemSize, uint32_
 		return QOBJ_SUCCESS;
 	
 	*elemCap *= 2;
-	void* newBuffer = realloc(*buffer, *elemCap * elemSize);
+	void* newBuffer = QOBJ_REALLOC(*buffer, *elemCap * elemSize);
 	if(!newBuffer)
 		return QOBJ_ERROR_OUT_OF_MEM;
 	*buffer = newBuffer;
@@ -268,10 +279,10 @@ QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
 	if(!map->keys)
 		return QOBJ_ERROR_OUT_OF_MEM;
 
-	map->vals = (uint32_t*)malloc(map->cap * sizeof(uint32_t));
+	map->vals = (uint32_t*)QOBJ_MALLOC(map->cap * sizeof(uint32_t));
 	if(!map->vals)
 	{
-		free(map->keys);
+		QOBJ_FREE(map->keys);
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
@@ -280,8 +291,8 @@ QOBJerror qobj_hashmap_create(QOBJvertexHashmap* map)
 
 void qobj_hashmap_free(QOBJvertexHashmap map)
 {
-	free(map.keys);
-	free(map.vals);
+	QOBJ_FREE(map.keys);
+	QOBJ_FREE(map.vals);
 }
 
 inline size_t qobj_hashmap_hash(QOBJvertexRef key)
@@ -329,10 +340,10 @@ QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJvertexRef key, uin
 		QOBJvertexRef* newKeys = (QOBJvertexRef*)calloc(map->cap, sizeof(QOBJvertexRef));
 		if(!newKeys)
 			return QOBJ_ERROR_OUT_OF_MEM;
-		uint32_t* newVals = (uint32_t*)malloc(map->cap * sizeof(uint32_t));
+		uint32_t* newVals = (uint32_t*)QOBJ_MALLOC(map->cap * sizeof(uint32_t));
 		if(!newVals)
 		{
-			free(newKeys);
+			QOBJ_FREE(newKeys);
 			return QOBJ_ERROR_OUT_OF_MEM;
 		}
 
@@ -346,8 +357,8 @@ QOBJerror qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJvertexRef key, uin
 			newVals[newHash] = map->vals[i];
 		}
 
-		free(map->keys);
-		free(map->vals);
+		QOBJ_FREE(map->keys);
+		QOBJ_FREE(map->vals);
 		map->keys = newKeys;
 		map->vals = newVals;
 	}
@@ -396,25 +407,25 @@ QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t vertexAttribs, const char* m
 	mesh->numVertices = 0;
 	mesh->numIndices  = 0;
 
-	mesh->vertices = (float*)malloc(mesh->vertexCap * sizeof(float) * mesh->vertexStride);
+	mesh->vertices = (float*)QOBJ_MALLOC(mesh->vertexCap * sizeof(float) * mesh->vertexStride);
 	if(!mesh->vertices)
 		return QOBJ_ERROR_OUT_OF_MEM;
 
-	mesh->indices = (uint32_t*)malloc(mesh->indexCap * sizeof(uint32_t));
+	mesh->indices = (uint32_t*)QOBJ_MALLOC(mesh->indexCap * sizeof(uint32_t));
 	if(!mesh->indices)
 	{
-		free(mesh->vertices);
+		QOBJ_FREE(mesh->vertices);
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
 	//copy material name:
 	//---------------
 	uint32_t nameSize = (uint32_t)strlen(materialName) + 1;
-	mesh->material = (char*)malloc(nameSize);
+	mesh->material = (char*)QOBJ_MALLOC(nameSize);
 	if(!mesh->material)
 	{
-		free(mesh->vertices);
-		free(mesh->indices);
+		QOBJ_FREE(mesh->vertices);
+		QOBJ_FREE(mesh->indices);
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
@@ -425,9 +436,9 @@ QOBJerror qobj_mesh_create(QOBJmesh* mesh, uint32_t vertexAttribs, const char* m
 
 void qobj_mesh_free(QOBJmesh mesh)
 {
-	free(mesh.vertices);
-	free(mesh.indices);
-	free(mesh.material);
+	QOBJ_FREE(mesh.vertices);
+	QOBJ_FREE(mesh.indices);
+	QOBJ_FREE(mesh.material);
 }
 
 //----------------------------------------------------------------------//
@@ -447,16 +458,16 @@ QOBJmaterial qobj_default_material()
 void qobj_material_free(QOBJmaterial material)
 {
 	if(material.name)
-		free(material.name);
+		QOBJ_FREE(material.name);
 
 	if(material.ambientMapPath)
-		free(material.ambientMapPath);
+		QOBJ_FREE(material.ambientMapPath);
 	if(material.diffuseMapPath)
-		free(material.diffuseMapPath);
+		QOBJ_FREE(material.diffuseMapPath);
 	if(material.specularMapPath)
-		free(material.specularMapPath);
+		QOBJ_FREE(material.specularMapPath);
 	if(material.normalMapPath)
-		free(material.normalMapPath);
+		QOBJ_FREE(material.normalMapPath);
 }
 
 //----------------------------------------------------------------------//
@@ -581,24 +592,24 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 	//---------------
 	uint32_t positionSize = 0 , normalSize = 0 , texCoordSize = 0;
 	uint32_t positionCap  = 32, normalCap  = 32, texCoordCap  = 32;
-	float* positions = (float*)malloc(positionCap * sizeof(float) * QOBJ_ATTRIB_SIZE_POSITION);
-	float* normals   = (float*)malloc(normalCap   * sizeof(float) * QOBJ_ATTRIB_SIZE_NORMAL);
-	float* texCoords = (float*)malloc(texCoordCap * sizeof(float) * QOBJ_ATTRIB_SIZE_TEX_COORDS);
+	float* positions = (float*)QOBJ_MALLOC(positionCap * sizeof(float) * QOBJ_ATTRIB_SIZE_POSITION);
+	float* normals   = (float*)QOBJ_MALLOC(normalCap   * sizeof(float) * QOBJ_ATTRIB_SIZE_NORMAL);
+	float* texCoords = (float*)QOBJ_MALLOC(texCoordCap * sizeof(float) * QOBJ_ATTRIB_SIZE_TEX_COORDS);
 
 	*numMeshes = 0;
-	*meshes = (QOBJmesh*)malloc(sizeof(QOBJmesh));
-	QOBJvertexHashmap* meshVertexMaps = (QOBJvertexHashmap*)malloc(sizeof(QOBJvertexHashmap));
+	*meshes = (QOBJmesh*)QOBJ_MALLOC(sizeof(QOBJmesh));
+	QOBJvertexHashmap* meshVertexMaps = (QOBJvertexHashmap*)QOBJ_MALLOC(sizeof(QOBJvertexHashmap));
 
 	//ensure memory was properly allocated:
 	//---------------
 	if(!positions || !normals || !texCoords || !*meshes || !meshVertexMaps)
 	{
-		free(positions);
-		free(normals);
-		free(texCoords);
+		QOBJ_FREE(positions);
+		QOBJ_FREE(normals);
+		QOBJ_FREE(texCoords);
 
-		free(meshes);
-		free(meshVertexMaps);
+		QOBJ_FREE(meshes);
+		QOBJ_FREE(meshVertexMaps);
 
 		fclose(fptr);
 
@@ -750,7 +761,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 				curMesh = (uint32_t)*numMeshes;
 
 				//allocate mem and create new mesh:
-				QOBJmesh* newMeshes = (QOBJmesh*)realloc(*meshes, (*numMeshes + 1) * sizeof(QOBJmesh));
+				QOBJmesh* newMeshes = (QOBJmesh*)QOBJ_REALLOC(*meshes, (*numMeshes + 1) * sizeof(QOBJmesh));
 				if(!newMeshes)
 				{
 					errorCode = QOBJ_ERROR_OUT_OF_MEM;
@@ -759,7 +770,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 				else
 					*meshes = newMeshes;
 
-				QOBJvertexHashmap* newMeshVertexMaps = (QOBJvertexHashmap*)realloc(meshVertexMaps, (*numMeshes + 1) * sizeof(QOBJvertexHashmap));
+				QOBJvertexHashmap* newMeshVertexMaps = (QOBJvertexHashmap*)QOBJ_REALLOC(meshVertexMaps, (*numMeshes + 1) * sizeof(QOBJvertexHashmap));
 				if(!newMeshVertexMaps)
 				{
 					errorCode = QOBJ_ERROR_OUT_OF_MEM;
@@ -839,7 +850,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 	for(uint32_t i = 0; i < *numMeshes; i++)
 		qobj_hashmap_free(meshVertexMaps[i]);
 
-	free(meshVertexMaps);
+	QOBJ_FREE(meshVertexMaps);
 
 	if(errorCode != QOBJ_SUCCESS)
 	{
@@ -847,9 +858,9 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 		*numMeshes = 0;
 	}
 
-	free(positions);
-	free(normals);
-	free(texCoords);
+	QOBJ_FREE(positions);
+	QOBJ_FREE(normals);
+	QOBJ_FREE(texCoords);
 
 	fclose(fptr);
 	return errorCode;
@@ -863,7 +874,7 @@ void qobj_free_obj(uint32_t numMeshes, QOBJmesh* meshes)
 	for(uint32_t i = 0; i < numMeshes; i++)
 		qobj_mesh_free(meshes[i]);
 	
-	free(meshes);
+	QOBJ_FREE(meshes);
 }
 
 //----------------------------------------------------------------------//
@@ -883,12 +894,12 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 
 	//allocate memory:
 	//---------------
-	*materials = (QOBJmaterial*)malloc(sizeof(QOBJmaterial));
+	*materials = (QOBJmaterial*)QOBJ_MALLOC(sizeof(QOBJmaterial));
 	*numMaterials = 0;
 
 	if(!*materials)
 	{
-		free(materials);
+		QOBJ_FREE(materials);
 		return QOBJ_ERROR_OUT_OF_MEM;
 	}
 
@@ -922,7 +933,7 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 			qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			curMaterial = *numMaterials;
-			QOBJmaterial* newMaterials = (QOBJmaterial*)realloc(*materials, *numMaterials * sizeof(QOBJmaterial));
+			QOBJmaterial* newMaterials = (QOBJmaterial*)QOBJ_REALLOC(*materials, *numMaterials * sizeof(QOBJmaterial));
 			if(!newMaterials)
 			{
 				errorCode = QOBJ_ERROR_OUT_OF_MEM;
@@ -935,7 +946,7 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 			}
 
 			(*materials)[curMaterial] = qobj_default_material();
-			(*materials)[curMaterial].name = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			(*materials)[curMaterial].name = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			strcpy_s((*materials)[curMaterial].name, QOBJ_MAX_TOKEN_LEN, curToken);
 		}
 		else if(strcmp(curToken, "Ka") == 0)
@@ -982,28 +993,28 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 		}
 		else if(strcmp(curToken, "map_Ka") == 0)
 		{
-			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].ambientMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Kd") == 0)
 		{
-			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].diffuseMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Ks") == 0)
 		{
-			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].specularMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Bump") == 0)
 		{
-			char* mapPath = (char*)malloc(QOBJ_MAX_TOKEN_LEN * sizeof(char));
+			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
 			qobj_fgets(fptr, mapPath, &curTokenEnd);
 
 			(*materials)[curMaterial].normalMapPath = mapPath;
@@ -1030,7 +1041,7 @@ void qobj_free_mtl(uint32_t numMaterials, QOBJmaterial* materials)
 	for(uint32_t i = 0; i < numMaterials; i++)
 		qobj_material_free(materials[i]);
 
-	free(materials);
+	QOBJ_FREE(materials);
 }
 
 //----------------------------------------------------------------------//
