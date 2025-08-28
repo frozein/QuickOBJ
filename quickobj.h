@@ -170,7 +170,7 @@ void qobj_free_mtl(uint32_t numMaterials, QOBJmaterial* materials);
 #include <string.h>
 
 #if !defined(QOBJ_MALLOC) || !defined(QOBJ_FREE) || !defined(QOBJ_FREE)
-	#include <malloc.h>
+	#include <stdlib.h>
 
 	#define QOBJ_MALLOC(s) malloc(s)
 	#define QOBJ_FREE(p) free(p)
