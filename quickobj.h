@@ -860,7 +860,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 			if(curMesh == UINT32_MAX)
 				for(uint32_t i = 0; i < *numMeshes; i++)
 				{
-					if(strcmp(curMaterial, meshes[i]->material) == 0)
+					if(strcmp(curMaterial, (*meshes)[i].material) == 0)
 					{
 						curMesh = i;
 						break;
@@ -1054,7 +1054,7 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 			_qobj_fgets(fptr, curToken, &curTokenEnd);
 
 			curMaterial = *numMaterials;
-			QOBJmaterial* newMaterials = (QOBJmaterial*)QOBJ_REALLOC(*materials, *numMaterials * sizeof(QOBJmaterial));
+			QOBJmaterial* newMaterials = (QOBJmaterial*)QOBJ_REALLOC(*materials, (*numMaterials + 1) * sizeof(QOBJmaterial));
 			if(!newMaterials)
 			{
 				errorCode = QOBJ_ERROR_OUT_OF_MEM;
