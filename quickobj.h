@@ -19,6 +19,7 @@
  * 
  * STRUCTURES:
  * ------------------------------------------------------------------------
+ * 
  * QOBJcolor
  * 		an RGB color
  * 
@@ -51,6 +52,7 @@
  * 
  * ENUMS:
  * ------------------------------------------------------------------------
+ * 
  * QOBJerror
  * 		the return value for most funtions, defines any possible errors that could occur
  * 
@@ -59,6 +61,7 @@
  * 
  * FUNCTIONS:
  * ------------------------------------------------------------------------
+ * 
  * QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes)
  * 		loads a .obj file from [path]
  * 		the [numMeshes] field is populated with the number of meshes loaded
@@ -261,15 +264,28 @@ static inline void _qobj_fgets(FILE* fptr, char* token, char* endCh)
 		*endCh = EOF;
 }
 
-static inline QOBJerror _qobj_maybe_resize_array(void** buffer, size_t elemSize, uint32_t numElems, uint32_t* elemCap)
+static inline QOBJerror _qobj_maybe_resize_array(void** buffer, uint64_t elemSize, uint32_t numElems, uint32_t* elemCap)
 {
 	if(numElems < *elemCap)
 		return QOBJ_SUCCESS;
-	
-	*elemCap *= 2;
-	void* newBuffer = QOBJ_REALLOC(*buffer, *elemCap * elemSize);
+
+	uint32_t newCap = *elemCap;
+	while(newCap <= numElems)
+	{
+		if(newCap > UINT32_MAX / 2)
+		{
+			newCap = UINT32_MAX;
+			break;
+		}
+
+		newCap *= 2;
+	}
+
+	void* newBuffer = QOBJ_REALLOC(*buffer, newCap * elemSize);
 	if(!newBuffer)
 		return QOBJ_ERROR_OUT_OF_MEM;
+	
+	*elemCap = newCap;
 	*buffer = newBuffer;
 
 	return QOBJ_SUCCESS;
@@ -280,6 +296,8 @@ static inline QOBJerror _qobj_maybe_resize_array(void** buffer, size_t elemSize,
 
 static QOBJerror _qobj_hashmap_create(QOBJvertexHashmap* map)
 {
+	memset(map, 0, sizeof(QOBJvertexHashmap));
+	
 	map->size = 0;
 	map->cap = 32;
 	map->keys = (QOBJvertexRef*)QOBJ_MALLOC(map->cap * sizeof(QOBJvertexRef));
@@ -300,8 +318,10 @@ static QOBJerror _qobj_hashmap_create(QOBJvertexHashmap* map)
 
 static void _qobj_hashmap_free(QOBJvertexHashmap map)
 {
-	QOBJ_FREE(map.keys);
-	QOBJ_FREE(map.vals);
+	if(map.keys)
+		QOBJ_FREE(map.keys);
+	if(map.vals)
+		QOBJ_FREE(map.vals);
 }
 
 static inline uint64_t _qobj_hashmap_hash(QOBJvertexRef key)
@@ -349,30 +369,29 @@ static QOBJerror _qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJvertexRef 
 	//---------------
 	if(map->size >= map->cap / 2)
 	{
-		uint32_t oldCap = map->cap;
-		map->cap *= 2;
+		uint32_t newCap = (map->cap >= UINT32_MAX / 2) ? UINT32_MAX : map->cap * 2;
 
-		QOBJvertexRef* newKeys = (QOBJvertexRef*)QOBJ_MALLOC(map->cap * sizeof(QOBJvertexRef));
+		QOBJvertexRef* newKeys = (QOBJvertexRef*)QOBJ_MALLOC(newCap * sizeof(QOBJvertexRef));
 		if(!newKeys)
 			return QOBJ_ERROR_OUT_OF_MEM;
 
-		memset(newKeys, 0, map->cap * sizeof(QOBJvertexRef));
+		memset(newKeys, 0, newCap * sizeof(QOBJvertexRef));
 
-		uint32_t* newVals = (uint32_t*)QOBJ_MALLOC(map->cap * sizeof(uint32_t));
+		uint32_t* newVals = (uint32_t*)QOBJ_MALLOC(newCap * sizeof(uint32_t));
 		if(!newVals)
 		{
 			QOBJ_FREE(newKeys);
 			return QOBJ_ERROR_OUT_OF_MEM;
 		}
 
-		for(uint32_t i = 0; i < oldCap; i++)
+		for(uint32_t i = 0; i < map->cap; i++)
 		{
 			if(map->keys[i].pos == 0)
 				continue;
 
-			uint64_t newHash = _qobj_hashmap_hash(map->keys[i]) % map->cap;
+			uint64_t newHash = _qobj_hashmap_hash(map->keys[i]) % newCap;
 			while(newKeys[newHash].pos != 0)
-				newHash = (newHash + 1) % map->cap;
+				newHash = (newHash + 1) % newCap;
 
 			newKeys[newHash] = map->keys[i];
 			newVals[newHash] = map->vals[i];
@@ -380,6 +399,8 @@ static QOBJerror _qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJvertexRef 
 
 		QOBJ_FREE(map->keys);
 		QOBJ_FREE(map->vals);
+
+		map->cap = newCap;
 		map->keys = newKeys;
 		map->vals = newVals;
 	}
@@ -392,6 +413,8 @@ static QOBJerror _qobj_hashmap_get_or_add(QOBJvertexHashmap* map, QOBJvertexRef 
 
 static QOBJerror _qobj_mesh_create(QOBJmesh* mesh, uint32_t vertexAttribs, const char* materialName)
 {
+	memset(mesh, 0, sizeof(QOBJmesh));
+	
 	//determine strides and offsets of attributes:
 	//---------------
 	mesh->vertexAttribs = vertexAttribs;
@@ -457,9 +480,12 @@ static QOBJerror _qobj_mesh_create(QOBJmesh* mesh, uint32_t vertexAttribs, const
 
 static void _qobj_mesh_free(QOBJmesh mesh)
 {
-	QOBJ_FREE(mesh.vertices);
-	QOBJ_FREE(mesh.indices);
-	QOBJ_FREE(mesh.material);
+	if(mesh.vertices)
+		QOBJ_FREE(mesh.vertices);
+	if(mesh.indices)
+		QOBJ_FREE(mesh.indices);
+	if(mesh.material)
+		QOBJ_FREE(mesh.material);
 }
 
 //----------------------------------------------------------------------//
@@ -563,7 +589,9 @@ static inline QOBJerror _qobj_add_vertex(QOBJmesh* mesh, QOBJvertexHashmap* map,
 	//add to hashmap: 
 	//---------------
 	uint32_t indexToAdd = (uint32_t)mesh->numVertices;
-	_qobj_hashmap_get_or_add(map, v, &indexToAdd);
+	QOBJerror hashError = _qobj_hashmap_get_or_add(map, v, &indexToAdd);
+	if(hashError != QOBJ_SUCCESS)
+		return hashError;
 
 	mesh->indices[mesh->numIndices++] = indexToAdd;
 	if(indexToAdd < (uint32_t)mesh->numVertices)
@@ -658,12 +686,8 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 	*numMeshes = 0;
 	*meshes = NULL;
 
-	//ensure file is valid and able to be opened:
+	//open file:
 	//---------------
-	uint32_t pathLen = (uint32_t)strlen(path);
-	if(pathLen < 4 || strcmp(&path[pathLen - 4], ".obj") != 0)
-		return QOBJ_ERROR_INVALID_FILE;
-
 	FILE* fptr;
 #ifdef _MSC_VER
 	if(fopen_s(&fptr, path, "r") != 0)
@@ -689,12 +713,17 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 	//---------------
 	if(!positions || !normals || !texCoords || !*meshes || !meshVertexMaps)
 	{
-		QOBJ_FREE(positions);
-		QOBJ_FREE(normals);
-		QOBJ_FREE(texCoords);
+		if(positions)
+			QOBJ_FREE(positions);
+		if(normals)
+			QOBJ_FREE(normals);
+		if(texCoords)
+			QOBJ_FREE(texCoords);
 
-		QOBJ_FREE(meshes);
-		QOBJ_FREE(meshVertexMaps);
+		if(meshes)
+			QOBJ_FREE(meshes);
+		if(meshVertexMaps)
+			QOBJ_FREE(meshVertexMaps);
 
 		fclose(fptr);
 
@@ -708,8 +737,8 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 	char curToken[QOBJ_MAX_TOKEN_LEN];
 	char curTokenEnd;
 
-	char curMaterial[QOBJ_MAX_TOKEN_LEN] = {}; //no material specified (yet)
-	uint32_t curMesh = UINT32_MAX;             //no working mesh (yet)
+	char curMaterial[QOBJ_MAX_TOKEN_LEN] = {0}; //no material specified (yet)
+	uint32_t curMesh = UINT32_MAX;              //no working mesh (yet)
 
 	while(1)
 	{
@@ -758,8 +787,6 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 		}
 		else if(strcmp(curToken, "vt") == 0)
 		{
-			//TODO: v is optional, account for this
-
 			uint32_t insertIdx = (uint32_t)texCoordSize++ * QOBJ_ATTRIB_SIZE_TEX_COORDS;
 
 			float dummy; //valid to specify 3d tex coords, but we ignore it
@@ -975,12 +1002,8 @@ void qobj_free_obj(uint32_t numMeshes, QOBJmesh* meshes)
 
 QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial** materials)
 {
-	//ensure file is valid and able to be opened:
+	//open file:
 	//---------------
-	uint32_t pathLen = (uint32_t)strlen(path);
-	if(pathLen < 4 || strcmp(&path[pathLen - 4], ".mtl") != 0)
-		return QOBJ_ERROR_INVALID_FILE;
-
 	FILE* fptr;
 #ifdef _MSC_VER
 	if(fopen_s(&fptr, path, "r") != 0)
@@ -1128,12 +1151,12 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 	}
 
 	fclose(fptr);
-	return errorCode;	
+	return errorCode;
 }
 
 void qobj_free_mtl(uint32_t numMaterials, QOBJmaterial* materials)
 {
-	if(materials == NULL)
+	if(materials == NULL || numMaterials == 0)
 		return;
 
 	for(uint32_t i = 0; i < numMaterials; i++)
