@@ -250,30 +250,17 @@ static inline void _qobj_next_token(FILE* fptr, char* token, char* endCh)
 	*endCh = curCh;
 }
 
-static inline void _qobj_fgets(FILE* fptr, char* token, char* endCh)
+static inline void _qobj_fgets(FILE* fptr, char* token)
 {
 	if(!fgets(token, QOBJ_MAX_TOKEN_LEN, fptr)) 
 	{
-		*endCh = EOF;
 		token[0] = '\0';
 		return;
 	}
 
 	uint32_t last = (uint32_t)strlen(token);
-	if(last == 0) 
-	{
-		*endCh = EOF;
-		return;
-	}
-
-	while(last > 0 && (token[last - 1] == '\n' || token[last - 1] == '\r')) 
-	{
-		*endCh = token[last - 1];
+	while(last > 0 && isspace(token[last - 1])) 
 		token[--last] = '\0';
-	}
-
-	if(last == 0)
-		*endCh = EOF;
 }
 
 static inline QOBJerror _qobj_maybe_resize_array(void** buffer, uint64_t elemSize, uint32_t numElems, uint32_t* elemCap)
@@ -767,7 +754,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 		   strcmp(curToken, "mtllib") == 0)
 		{
 			if(isspace(curTokenEnd))
-				_qobj_fgets(fptr, curToken, &curTokenEnd);
+				_qobj_fgets(fptr, curToken);
 		}
 		else if(strcmp(curToken, "v") == 0)
 		{
@@ -965,7 +952,7 @@ QOBJerror qobj_load_obj(const char* path, uint32_t* numMeshes, QOBJmesh** meshes
 		}
 		else if(strcmp(curToken, "usemtl") == 0)
 		{
-			_qobj_fgets(fptr, curToken, &curTokenEnd);
+			_qobj_fgets(fptr, curToken);
 			
 			strcpy(curMaterial, curToken);
 			curMesh = UINT32_MAX;
@@ -1059,11 +1046,11 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 		   strcmp(curToken, "Tf") == 0) //comments / ignored commands
 		{
 			if(isspace(curTokenEnd))
-				_qobj_fgets(fptr, curToken, &curTokenEnd);
+				_qobj_fgets(fptr, curToken);
 		}
 		else if(strcmp(curToken, "newmtl") == 0)
 		{
-			_qobj_fgets(fptr, curToken, &curTokenEnd);
+			_qobj_fgets(fptr, curToken);
 
 			curMaterial = *numMaterials;
 			QOBJmaterial* newMaterials = (QOBJmaterial*)QOBJ_REALLOC(*materials, (*numMaterials + 1) * sizeof(QOBJmaterial));
@@ -1127,28 +1114,28 @@ QOBJerror qobj_load_mtl(const char* path, uint32_t* numMaterials, QOBJmaterial**
 		else if(strcmp(curToken, "map_Ka") == 0)
 		{
 			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			_qobj_fgets(fptr, mapPath, &curTokenEnd);
+			_qobj_fgets(fptr, mapPath);
 
 			(*materials)[curMaterial].ambientMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Kd") == 0)
 		{
 			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			_qobj_fgets(fptr, mapPath, &curTokenEnd);
+			_qobj_fgets(fptr, mapPath);
 
 			(*materials)[curMaterial].diffuseMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Ks") == 0)
 		{
 			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			_qobj_fgets(fptr, mapPath, &curTokenEnd);
+			_qobj_fgets(fptr, mapPath);
 
 			(*materials)[curMaterial].specularMapPath = mapPath;
 		}
 		else if(strcmp(curToken, "map_Bump") == 0)
 		{
 			char* mapPath = (char*)QOBJ_MALLOC(QOBJ_MAX_TOKEN_LEN * sizeof(char));
-			_qobj_fgets(fptr, mapPath, &curTokenEnd);
+			_qobj_fgets(fptr, mapPath);
 
 			(*materials)[curMaterial].normalMapPath = mapPath;
 		}
