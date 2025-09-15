@@ -252,15 +252,27 @@ static inline void _qobj_next_token(FILE* fptr, char* token, char* endCh)
 
 static inline void _qobj_fgets(FILE* fptr, char* token, char* endCh)
 {
-	fgets(token, QOBJ_MAX_TOKEN_LEN, fptr);
-
-	uint32_t last = (uint32_t)strlen(token) - 1;
-	if(token[last] == '\n')
+	if(!fgets(token, QOBJ_MAX_TOKEN_LEN, fptr)) 
 	{
-		*endCh = token[last];
-		token[last] = '\0';
+		*endCh = EOF;
+		token[0] = '\0';
+		return;
 	}
-	else
+
+	uint32_t last = (uint32_t)strlen(token);
+	if(last == 0) 
+	{
+		*endCh = EOF;
+		return;
+	}
+
+	while(last > 0 && (token[last - 1] == '\n' || token[last - 1] == '\r')) 
+	{
+		*endCh = token[last - 1];
+		token[--last] = '\0';
+	}
+
+	if(last == 0)
 		*endCh = EOF;
 }
 
